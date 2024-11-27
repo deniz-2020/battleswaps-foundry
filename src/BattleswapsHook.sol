@@ -94,10 +94,9 @@ contract BattleswapsHook is BaseHook {
             "Duration must be at least 1 day long and no more than 1000 days long"
         );
         require(
-            _token0 != address(0) && _token1 != address(0),
-            "Invalid token0 or token1 address"
+            _token0 != _token1,
+            "The tokens token0 and token1 must be different"
         );
-        require(_token0 != _token1, "token0 and token1 must be different");
         require(
             _startBalanceToken0 > 0 || _startBalanceToken1 > 0,
             "At least one of _startBalanceToken0 or _startBalanceToken1 must be greater than 0"
@@ -148,5 +147,12 @@ contract BattleswapsHook is BaseHook {
             _opponent,
             block.timestamp
         );
+    }
+
+    function getBattleRequest(
+        bytes32 pairKey,
+        address requester
+    ) public view returns (BattleRequest memory) {
+        return battleRequests[pairKey][requester];
     }
 }
