@@ -28,7 +28,7 @@ contract BattleswapsHook is BaseHook {
     }
 
     struct Battle {
-        address player0; // Is the one that requested the battle
+        address player0; // Is the player that requested the battle
         address player1; // Is the player that accepted the battle request
         uint256 startedAt; // The time the battle is accepted and hence started
         uint256 endsAt; // The specific time the battle is expected to end
@@ -239,8 +239,8 @@ contract BattleswapsHook is BaseHook {
         );
 
         // Initialise and record battle in mapping
-        battles[pairKey][msg.sender] = Battle({
-            player0: params.requester,
+        battles[pairKey][br.requester] = Battle({
+            player0: br.requester,
             player1: msg.sender,
             startedAt: block.timestamp,
             endsAt: block.timestamp + br.duration,
@@ -281,12 +281,12 @@ contract BattleswapsHook is BaseHook {
         }
 
         // Update trackings
-        playersWithOpenBattleRequests[params.requester][pairKey] = false;
+        playersWithOpenBattleRequests[br.requester][pairKey] = false;
         playersWithOpenBattles[msg.sender][pairKey] = true;
-        playersWithOpenBattles[params.requester][pairKey] = true;
+        playersWithOpenBattles[br.requester][pairKey] = true;
 
         // Remove the battle request from the battle requests mapping
-        deleteBattleRequest(pairKey, params.requester);
+        deleteBattleRequest(pairKey, br.requester);
     }
 
     function getBattleRequest(
@@ -298,5 +298,12 @@ contract BattleswapsHook is BaseHook {
 
     function deleteBattleRequest(bytes32 pairKey, address requester) internal {
         delete battleRequests[pairKey][requester];
+    }
+
+    function getBattle(
+        bytes32 pairKey,
+        address requester
+    ) public view returns (Battle memory) {
+        return battles[pairKey][requester];
     }
 }
