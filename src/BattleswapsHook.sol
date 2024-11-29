@@ -8,30 +8,22 @@ import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {BalanceDeltaLibrary, BalanceDelta} from "v4-core/types/BalanceDelta.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {Hooks} from "v4-core/libraries/Hooks.sol";
+import "forge-std/console.sol"; // REMOVE THIS WHEN DONE DEBUGGING
 
 contract BattleswapsHook is BaseHook {
     using CurrencyLibrary for Currency;
     using BalanceDeltaLibrary for BalanceDelta;
 
-    struct BattleRequestParams {
-        uint256 prizePotShareToken0;
-        uint256 prizePotShareToken1;
-        uint256 duration;
-        address token0;
-        address token1;
-        uint256 startBalanceToken0;
-        uint256 startBalanceToken1;
-        address opponent;
-    }
-
     struct BattleRequest {
         address requester; // Player who is requesting the battle
+        address opponent; // Opponent address (optionally provided)
         uint256 prizePotShareToken0; // Prize pot share to be taken from each player for Token 0
         uint256 prizePotShareToken1; // Prize pot share to be taken from each player for Token 1
         uint256 duration; // Duration of the battle in UNIX
         uint256 startBalanceToken0; // Starting balance of Token 0
         uint256 startBalanceToken1; // Starting balance of Token 1
-        address opponent; // Opponent address (optional)
+        address token0; // Reference to token0
+        address token1; // Reference to token1
         uint256 timestamp; // Timestamp of when the battle request was made
     }
 
@@ -131,8 +123,19 @@ contract BattleswapsHook is BaseHook {
     //     return (this.afterSwap.selector, 0);
     // }
 
+    struct RequestBattleParams {
+        uint256 prizePotShareToken0;
+        uint256 prizePotShareToken1;
+        uint256 duration;
+        address token0;
+        address token1;
+        uint256 startBalanceToken0;
+        uint256 startBalanceToken1;
+        address opponent;
+    }
+
     function requestBattle(
-        BattleRequestParams calldata params
+        RequestBattleParams calldata params
     )
         external
         payable
@@ -186,12 +189,14 @@ contract BattleswapsHook is BaseHook {
         // Record battle request in mapping
         battleRequests[pairKey][msg.sender] = BattleRequest({
             requester: msg.sender,
+            opponent: params.opponent,
             prizePotShareToken0: params.prizePotShareToken0,
             prizePotShareToken1: params.prizePotShareToken1,
             duration: params.duration,
             startBalanceToken0: params.startBalanceToken0,
             startBalanceToken1: params.startBalanceToken1,
-            opponent: params.opponent,
+            token0: params.token0,
+            token1: params.token1,
             timestamp: block.timestamp
         });
 
@@ -209,15 +214,25 @@ contract BattleswapsHook is BaseHook {
         );
     }
 
+    struct AcceptBattleParams {
+        address token0;
+        address token1;
+        address requester;
+    }
+
     function acceptBattle(
-        address _token0,
-        address _token1,
-        address requester
-    ) external payable onlyPlayerAvailableForBattle(_token0, _token1) {
-        bytes32 pairKey = keccak256(abi.encodePacked(_token0, _token1));
+        AcceptBattleParams calldata params
+    )
+        external
+        payable
+        onlyPlayerAvailableForBattle(params.token0, params.token1)
+    {
+        bytes32 pairKey = keccak256(
+            abi.encodePacked(params.token0, params.token1)
+        );
 
         // Find the battle request
-        BattleRequest memory br = getBattleRequest(pairKey, requester);
+        BattleRequest memory br = getBattleRequest(pairKey, params.requester);
         require(
             br.requester != address(0),
             "Given battle request could not be found."
@@ -225,7 +240,7 @@ contract BattleswapsHook is BaseHook {
 
         // Initialise and record battle in mapping
         battles[pairKey][msg.sender] = Battle({
-            player0: requester,
+            player0: params.requester,
             player1: msg.sender,
             startedAt: block.timestamp,
             endsAt: block.timestamp + br.duration,
@@ -239,8 +254,8 @@ contract BattleswapsHook is BaseHook {
         emit BattleRequestAccepted(
             br.requester,
             msg.sender,
-            _token0,
-            _token1,
+            br.token0,
+            br.token1,
             br.prizePotShareToken0,
             br.prizePotShareToken1,
             br.duration,
@@ -251,14 +266,14 @@ contract BattleswapsHook is BaseHook {
 
         // Take the prize pot money from the accepter
         if (br.prizePotShareToken0 > 0) {
-            ERC20(_token0).transferFrom(
+            ERC20(br.token0).transferFrom(
                 msg.sender,
                 address(this),
                 br.prizePotShareToken0
             );
         }
         if (br.prizePotShareToken1 > 0) {
-            ERC20(_token1).transferFrom(
+            ERC20(br.token1).transferFrom(
                 msg.sender,
                 address(this),
                 br.prizePotShareToken1
@@ -266,12 +281,12 @@ contract BattleswapsHook is BaseHook {
         }
 
         // Update trackings
-        playersWithOpenBattleRequests[requester][pairKey] = false;
+        playersWithOpenBattleRequests[params.requester][pairKey] = false;
         playersWithOpenBattles[msg.sender][pairKey] = true;
-        playersWithOpenBattles[requester][pairKey] = true;
+        playersWithOpenBattles[params.requester][pairKey] = true;
 
         // Remove the battle request from the battle requests mapping
-        deleteBattleRequest(pairKey, requester);
+        deleteBattleRequest(pairKey, params.requester);
     }
 
     function getBattleRequest(
