@@ -44,7 +44,7 @@ contract BattleswapsHook is BaseHook {
 
     mapping(address => mapping(bytes32 => bool))
         public playersWithOpenBattleRequests; // requester address => pairKey => bool
-    mapping(address => mapping(bytes32 => bool)) public playersWithOpenBattles; // requester or accepter address => pairKey => bool
+    mapping(address => mapping(bytes32 => bool)) public playersWithOpenBattles; // requester/accepter address => pairKey => bool
 
     event BattleRequestCreated(
         address indexed requester,
@@ -305,5 +305,19 @@ contract BattleswapsHook is BaseHook {
         address requester
     ) public view returns (Battle memory) {
         return battles[pairKey][requester];
+    }
+
+    function isPlayerWithOpenBattleRequestForPairKey(
+        bytes32 pairKey,
+        address player
+    ) public view returns (bool) {
+        return playersWithOpenBattleRequests[player][pairKey];
+    }
+
+    function isPlayerWithOpenBattleForPairKey(
+        bytes32 pairKey,
+        address player
+    ) public view returns (bool) {
+        return playersWithOpenBattles[player][pairKey];
     }
 }
