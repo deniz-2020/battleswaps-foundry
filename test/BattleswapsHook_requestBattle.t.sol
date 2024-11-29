@@ -90,8 +90,8 @@ contract BattleswapsHook_requestBattle is Test, Deployers {
             "At least one of prizePotShareToken0 or prizePotShareToken1 must be greater than 0."
         );
 
-        BattleswapsHook.BattleRequestParams memory params = BattleswapsHook
-            .BattleRequestParams({
+        BattleswapsHook.RequestBattleParams memory params = BattleswapsHook
+            .RequestBattleParams({
                 prizePotShareToken0: 0,
                 prizePotShareToken1: 0,
                 duration: 10 days,
@@ -110,8 +110,8 @@ contract BattleswapsHook_requestBattle is Test, Deployers {
             "Duration must be at least 1 day long and no more than 1000 days long."
         );
 
-        BattleswapsHook.BattleRequestParams memory params = BattleswapsHook
-            .BattleRequestParams({
+        BattleswapsHook.RequestBattleParams memory params = BattleswapsHook
+            .RequestBattleParams({
                 prizePotShareToken0: 100,
                 prizePotShareToken1: 0,
                 duration: 0.5 days,
@@ -132,8 +132,8 @@ contract BattleswapsHook_requestBattle is Test, Deployers {
             "Duration must be at least 1 day long and no more than 1000 days long."
         );
 
-        BattleswapsHook.BattleRequestParams memory params = BattleswapsHook
-            .BattleRequestParams({
+        BattleswapsHook.RequestBattleParams memory params = BattleswapsHook
+            .RequestBattleParams({
                 prizePotShareToken0: 100,
                 prizePotShareToken1: 0,
                 duration: 1001 days,
@@ -150,8 +150,8 @@ contract BattleswapsHook_requestBattle is Test, Deployers {
     function test_should_revert_if_token0_and_token1_are_the_same() public {
         vm.expectRevert("The tokens token0 and token1 must be different.");
 
-        BattleswapsHook.BattleRequestParams memory params = BattleswapsHook
-            .BattleRequestParams({
+        BattleswapsHook.RequestBattleParams memory params = BattleswapsHook
+            .RequestBattleParams({
                 prizePotShareToken0: 100,
                 prizePotShareToken1: 0,
                 duration: 10 days,
@@ -172,8 +172,8 @@ contract BattleswapsHook_requestBattle is Test, Deployers {
             "At least one of _startBalanceToken0 or _startBalanceToken1 must be greater than 0."
         );
 
-        BattleswapsHook.BattleRequestParams memory params = BattleswapsHook
-            .BattleRequestParams({
+        BattleswapsHook.RequestBattleParams memory params = BattleswapsHook
+            .RequestBattleParams({
                 prizePotShareToken0: 100,
                 prizePotShareToken1: 0,
                 duration: 10 days,
@@ -194,8 +194,8 @@ contract BattleswapsHook_requestBattle is Test, Deployers {
             "Opponent cannot be the same as the player requesting battle."
         );
 
-        BattleswapsHook.BattleRequestParams memory params = BattleswapsHook
-            .BattleRequestParams({
+        BattleswapsHook.RequestBattleParams memory params = BattleswapsHook
+            .RequestBattleParams({
                 prizePotShareToken0: 100,
                 prizePotShareToken1: 0,
                 duration: 10 days,
@@ -214,8 +214,8 @@ contract BattleswapsHook_requestBattle is Test, Deployers {
     {
         uint256 _prizePotShareToken0 = 100;
 
-        BattleswapsHook.BattleRequestParams memory params = BattleswapsHook
-            .BattleRequestParams({
+        BattleswapsHook.RequestBattleParams memory params = BattleswapsHook
+            .RequestBattleParams({
                 prizePotShareToken0: _prizePotShareToken0,
                 prizePotShareToken1: 0,
                 duration: 10 days,
@@ -239,8 +239,8 @@ contract BattleswapsHook_requestBattle is Test, Deployers {
     {
         uint256 _prizePotShareToken1 = 100;
 
-        BattleswapsHook.BattleRequestParams memory params = BattleswapsHook
-            .BattleRequestParams({
+        BattleswapsHook.RequestBattleParams memory params = BattleswapsHook
+            .RequestBattleParams({
                 prizePotShareToken0: 0,
                 prizePotShareToken1: _prizePotShareToken1,
                 duration: 10 days,
@@ -265,8 +265,8 @@ contract BattleswapsHook_requestBattle is Test, Deployers {
         uint256 _prizePotShareToken0 = 100;
         uint256 _prizePotShareToken1 = 100;
 
-        BattleswapsHook.BattleRequestParams memory params = BattleswapsHook
-            .BattleRequestParams({
+        BattleswapsHook.RequestBattleParams memory params = BattleswapsHook
+            .RequestBattleParams({
                 prizePotShareToken0: _prizePotShareToken0,
                 prizePotShareToken1: _prizePotShareToken1,
                 duration: 10 days,
@@ -307,8 +307,8 @@ contract BattleswapsHook_requestBattle is Test, Deployers {
         address _token0 = address(token0);
         address _token1 = address(token1);
 
-        BattleswapsHook.BattleRequestParams memory params = BattleswapsHook
-            .BattleRequestParams({
+        BattleswapsHook.RequestBattleParams memory params = BattleswapsHook
+            .RequestBattleParams({
                 prizePotShareToken0: 100,
                 prizePotShareToken1: 0,
                 duration: 10 days,
@@ -351,8 +351,8 @@ contract BattleswapsHook_requestBattle is Test, Deployers {
         uint256 _startBalanceToken0 = 100 * 1e18;
         uint256 _startBalanceToken1 = 100 * 1e18;
 
-        BattleswapsHook.BattleRequestParams memory params = BattleswapsHook
-            .BattleRequestParams({
+        BattleswapsHook.RequestBattleParams memory params = BattleswapsHook
+            .RequestBattleParams({
                 prizePotShareToken0: _prizePotShareToken0,
                 prizePotShareToken1: _prizePotShareToken1,
                 duration: _duration,
