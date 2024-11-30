@@ -73,6 +73,19 @@ contract BattleswapsHook is BaseHook {
         uint256 timestamp
     );
 
+    event BattleBalancesUpdated(
+        address indexed player,
+        bool isPlayer0,
+        address token0,
+        address token1,
+        address requester,
+        uint256 beforeBalanceToken0,
+        uint256 beforeBalanceToken1,
+        uint256 afterBalanceToken0,
+        uint256 afterBalanceToken1,
+        uint256 timestamp
+    );
+
     modifier onlyPlayerAvailableForBattle(address _token0, address _token1) {
         bytes32 pairKey = keccak256(abi.encodePacked(_token0, _token1));
         require(
@@ -143,6 +156,8 @@ contract BattleswapsHook is BaseHook {
         uint256 token1Balance = isPlayer0
             ? battle.player0Token1Balance
             : battle.player1Token1Balance;
+        uint256 beforeToken0Balance = token0Balance;
+        uint256 beforeToken1Balance = token1Balance;
 
         if (swapParams.zeroForOne) {
             // If player is giving Token 0, check its balance limit
@@ -166,6 +181,19 @@ contract BattleswapsHook is BaseHook {
             battle.player1Token0Balance = token0Balance;
             battle.player1Token1Balance = token1Balance;
         }
+
+        emit BattleBalancesUpdated(
+            msg.sender,
+            isPlayer0,
+            token0,
+            token1,
+            battle.player0,
+            beforeToken0Balance,
+            beforeToken1Balance,
+            token0Balance,
+            token1Balance,
+            block.timestamp
+        );
 
         return (this.afterSwap.selector, 0);
     }
