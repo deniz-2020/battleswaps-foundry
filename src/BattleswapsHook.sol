@@ -112,16 +112,15 @@ contract BattleswapsHook is BaseHook {
             });
     }
 
-    // // Stub implementation of `afterSwap`
-    // function afterSwap(
-    //     address,
-    //     PoolKey calldata _key,
-    //     IPoolManager.SwapParams calldata _swapParams,
-    //     BalanceDelta _delta,
-    //     bytes calldata _hookData
-    // ) external override onlyPoolManager returns (bytes4, int128) {
-    //     return (this.afterSwap.selector, 0);
-    // }
+    function afterSwap(
+        address,
+        PoolKey calldata _key,
+        IPoolManager.SwapParams calldata _swapParams,
+        BalanceDelta _delta,
+        bytes calldata _hookData
+    ) external override onlyPoolManager returns (bytes4, int128) {
+        return (this.afterSwap.selector, 0);
+    }
 
     struct RequestBattleParams {
         uint256 prizePotShareToken0;
