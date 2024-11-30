@@ -131,7 +131,7 @@ contract BattleswapsHook is BaseHook {
         PoolKey calldata key,
         IPoolManager.SwapParams calldata swapParams,
         BalanceDelta delta,
-        bytes calldata hookData
+        bytes calldata
     ) external override onlyPoolManager returns (bytes4, int128) {
         // Check if trader has an open battle for pairKey
         address token0 = Currency.unwrap(key.currency0);
@@ -149,6 +149,12 @@ contract BattleswapsHook is BaseHook {
 
         // If there is an open battle, load it
         Battle memory battle = getBattle(pairKey, battleRequester);
+
+        // If battle has expired, short-circuit the afterSwap hook logic
+        if (battle.endsAt <= block.timestamp) {
+            return (this.afterSwap.selector, 0);
+        }
+
         bool isPlayer0 = battle.player0 == trader;
         uint256 token0Balance = isPlayer0
             ? battle.player0Token0Balance
