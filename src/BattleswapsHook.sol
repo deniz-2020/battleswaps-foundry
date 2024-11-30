@@ -44,7 +44,8 @@ contract BattleswapsHook is BaseHook {
 
     mapping(address => mapping(bytes32 => bool))
         public playersWithOpenBattleRequests; // requester address => pairKey => bool
-    mapping(address => mapping(bytes32 => bool)) public playersWithOpenBattles; // requester/accepter address => pairKey => bool
+    mapping(address => mapping(bytes32 => address))
+        public playersWithOpenBattles; // requester/accepter address => pairKey => requester address
 
     event BattleRequestCreated(
         address indexed requester,
@@ -75,11 +76,11 @@ contract BattleswapsHook is BaseHook {
     modifier onlyPlayerAvailableForBattle(address _token0, address _token1) {
         bytes32 pairKey = keccak256(abi.encodePacked(_token0, _token1));
         require(
-            !playersWithOpenBattleRequests[msg.sender][pairKey],
+            !isPlayerWithOpenBattleRequestForPairKey(pairKey, msg.sender),
             "Player already has an open battle request for this token pair."
         );
         require(
-            !playersWithOpenBattles[msg.sender][pairKey],
+            isPlayerWithOpenBattleForPairKey(pairKey, msg.sender) != address(0),
             "Player already has an open battle for this token pair."
         );
         _;
@@ -113,12 +114,59 @@ contract BattleswapsHook is BaseHook {
     }
 
     function afterSwap(
-        address,
-        PoolKey calldata _key,
-        IPoolManager.SwapParams calldata _swapParams,
-        BalanceDelta _delta,
-        bytes calldata _hookData
+        address trader,
+        PoolKey calldata key,
+        IPoolManager.SwapParams calldata swapParams,
+        BalanceDelta delta,
+        bytes calldata hookData
     ) external override onlyPoolManager returns (bytes4, int128) {
+        // Check if trader has an open battle for pairKey
+        address token0 = Currency.unwrap(key.currency0);
+        address token1 = Currency.unwrap(key.currency1);
+        bytes32 pairKey = keccak256(abi.encodePacked(token0, token1));
+
+        // If there is no open battle, short-circuit the afterSwap hook logic and continue as normal
+        address battleRequester = isPlayerWithOpenBattleForPairKey(
+            pairKey,
+            trader
+        );
+        if (battleRequester == address(0)) {
+            return (this.afterSwap.selector, 0);
+        }
+
+        // If there is an open battle, load it
+        Battle memory battle = getBattle(pairKey, battleRequester);
+        bool isPlayer0 = battle.player0 == trader;
+        uint256 token0Balance = isPlayer0
+            ? battle.player0Token0Balance
+            : battle.player1Token0Balance;
+        uint256 token1Balance = isPlayer0
+            ? battle.player0Token1Balance
+            : battle.player1Token1Balance;
+
+        if (swapParams.zeroForOne) {
+            // If player is giving Token 0, check its balance limit
+            if (token0Balance >= uint256(int256(-delta.amount0()))) {
+                token0Balance -= uint256(int256(-delta.amount0()));
+                token1Balance += uint256(int256(delta.amount1()));
+            }
+        } else {
+            // If player is giving Token 1, check its balance limit
+            if (token1Balance >= uint256(int256(-delta.amount1()))) {
+                token1Balance -= uint256(int256(-delta.amount1()));
+                token0Balance += uint256(int256(delta.amount0()));
+            }
+        }
+
+        // Update Battle with newly calculated Token 0 and Token 1 balances
+        if (isPlayer0) {
+            battle.player0Token0Balance = token0Balance;
+            battle.player0Token1Balance = token1Balance;
+        } else {
+            battle.player1Token0Balance = token0Balance;
+            battle.player1Token1Balance = token1Balance;
+        }
+
         return (this.afterSwap.selector, 0);
     }
 
@@ -281,8 +329,8 @@ contract BattleswapsHook is BaseHook {
 
         // Update trackings
         playersWithOpenBattleRequests[br.requester][pairKey] = false;
-        playersWithOpenBattles[msg.sender][pairKey] = true;
-        playersWithOpenBattles[br.requester][pairKey] = true;
+        playersWithOpenBattles[msg.sender][pairKey] = br.requester;
+        playersWithOpenBattles[br.requester][pairKey] = br.requester;
 
         // Remove the battle request from the battle requests mapping
         deleteBattleRequest(pairKey, br.requester);
@@ -316,7 +364,7 @@ contract BattleswapsHook is BaseHook {
     function isPlayerWithOpenBattleForPairKey(
         bytes32 pairKey,
         address player
-    ) public view returns (bool) {
+    ) public view returns (address) {
         return playersWithOpenBattles[player][pairKey];
     }
 }
