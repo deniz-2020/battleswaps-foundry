@@ -445,14 +445,14 @@ contract BattleswapsHook_acceptBattle is Test, Deployers {
         bytes32 pairKey = keccak256(abi.encodePacked(token0, token1));
         bool battleRequestIsOpen = battleswapsHook
             .isPlayerWithOpenBattleRequestForPairKey(pairKey, requester);
-        bool hasOpenBattle_requester = battleswapsHook
+        address hasOpenBattle_requester = battleswapsHook
             .isPlayerWithOpenBattleForPairKey(pairKey, requester);
-        bool hasOpenBattle_accepter = battleswapsHook
+        address hasOpenBattle_accepter = battleswapsHook
             .isPlayerWithOpenBattleForPairKey(pairKey, opponent);
 
         assertFalse(battleRequestIsOpen);
-        assertTrue(hasOpenBattle_requester);
-        assertTrue(hasOpenBattle_accepter);
+        assertTrue(hasOpenBattle_requester != address(0));
+        assertTrue(hasOpenBattle_accepter != address(0));
     }
 
     function test_should_delete_battle_request_from_battle_requests_mapping()

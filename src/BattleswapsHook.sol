@@ -39,6 +39,8 @@ contract BattleswapsHook is BaseHook {
         BattleRequest battleRequest; // A reference to the original battle request information
     }
 
+    address battleSwapRouter;
+
     mapping(bytes32 => mapping(address => BattleRequest)) public battleRequests; // Mapping(pairKey => Mapping(requester address => BattleRequest))
     mapping(bytes32 => mapping(address => Battle)) public battles; // Mapping(pairKey => Mapping(requester address => Battle))
 
@@ -99,7 +101,12 @@ contract BattleswapsHook is BaseHook {
         _;
     }
 
-    constructor(IPoolManager _manager) BaseHook(_manager) {}
+    constructor(
+        IPoolManager _manager,
+        address _battleSwapRouter
+    ) BaseHook(_manager) {
+        battleSwapRouter = _battleSwapRouter;
+    }
 
     function getHookPermissions()
         public
@@ -127,13 +134,19 @@ contract BattleswapsHook is BaseHook {
     }
 
     function afterSwap(
-        address trader,
+        address swapCaller,
         PoolKey calldata key,
         IPoolManager.SwapParams calldata swapParams,
         BalanceDelta delta,
-        bytes calldata
+        bytes calldata hookData
     ) external override onlyPoolManager returns (bytes4, int128) {
+        require(
+            swapCaller == battleSwapRouter,
+            "The swaps for this hook can only be called by the BattleswapsRouter contract"
+        );
+
         // Check if trader has an open battle for pairKey
+        address trader = abi.decode(hookData, (address));
         address token0 = Currency.unwrap(key.currency0);
         address token1 = Currency.unwrap(key.currency1);
         bytes32 pairKey = keccak256(abi.encodePacked(token0, token1));
@@ -155,57 +168,18 @@ contract BattleswapsHook is BaseHook {
             return (this.afterSwap.selector, 0);
         }
 
+        // Calculate and then update the new balances for Token 0 and Token 1
         bool isPlayer0 = battle.player0 == trader;
-        uint256 token0Balance = isPlayer0
-            ? battle.player0Token0Balance
-            : battle.player1Token0Balance;
-        uint256 token1Balance = isPlayer0
-            ? battle.player0Token1Balance
-            : battle.player1Token1Balance;
-        uint256 beforeToken0Balance = token0Balance;
-        uint256 beforeToken1Balance = token1Balance;
+        (uint256 token0Balance, uint256 token1Balance) = _calculateNewBalances(
+            swapParams,
+            delta,
+            battle,
+            trader,
+            isPlayer0,
+            token0,
+            token1
+        );
 
-        if (
-            swapParams.zeroForOne &&
-            token0Balance >= uint256(int256(-delta.amount0()))
-        ) {
-            token0Balance -= uint256(int256(-delta.amount0()));
-            token1Balance += uint256(int256(delta.amount1()));
-
-            emit BattleBalancesUpdated(
-                msg.sender,
-                isPlayer0,
-                token0,
-                token1,
-                battle.player0,
-                beforeToken0Balance,
-                beforeToken1Balance,
-                token0Balance,
-                token1Balance,
-                block.timestamp
-            );
-        } else if (
-            !swapParams.zeroForOne &&
-            token1Balance >= uint256(int256(-delta.amount1()))
-        ) {
-            token1Balance -= uint256(int256(-delta.amount1()));
-            token0Balance += uint256(int256(delta.amount0()));
-
-            emit BattleBalancesUpdated(
-                msg.sender,
-                isPlayer0,
-                token0,
-                token1,
-                battle.player0,
-                beforeToken0Balance,
-                beforeToken1Balance,
-                token0Balance,
-                token1Balance,
-                block.timestamp
-            );
-        }
-
-        // Update Battle with newly calculated Token 0 and Token 1 balances
         if (isPlayer0) {
             battle.player0Token0Balance = token0Balance;
             battle.player0Token1Balance = token1Balance;
@@ -413,5 +387,61 @@ contract BattleswapsHook is BaseHook {
         address player
     ) public view returns (address) {
         return playersWithOpenBattles[player][pairKey];
+    }
+
+    function _calculateNewBalances(
+        IPoolManager.SwapParams calldata swapParams,
+        BalanceDelta delta,
+        Battle memory battle,
+        address player,
+        bool isPlayer0,
+        address token0,
+        address token1
+    ) private returns (uint256, uint256) {
+        // Load initial Battle values
+        uint256 token0Balance = isPlayer0
+            ? battle.player0Token0Balance
+            : battle.player1Token0Balance;
+        uint256 token1Balance = isPlayer0
+            ? battle.player0Token1Balance
+            : battle.player1Token1Balance;
+        uint256 beforeToken0Balance = token0Balance;
+        uint256 beforeToken1Balance = token1Balance;
+
+        // Check current balances and calculate new values where necessary
+        if (
+            swapParams.zeroForOne &&
+            token0Balance >= uint256(int256(-delta.amount0()))
+        ) {
+            token0Balance -= uint256(int256(-delta.amount0()));
+            token1Balance += uint256(int256(delta.amount1()));
+        } else if (
+            !swapParams.zeroForOne &&
+            token1Balance >= uint256(int256(-delta.amount1()))
+        ) {
+            token1Balance -= uint256(int256(-delta.amount1()));
+            token0Balance += uint256(int256(delta.amount0()));
+        }
+
+        // If there were changes to the balances, emit event to indicate this
+        if (
+            beforeToken0Balance != token0Balance ||
+            beforeToken1Balance != token1Balance
+        ) {
+            emit BattleBalancesUpdated(
+                player,
+                isPlayer0,
+                token0,
+                token1,
+                battle.player0,
+                beforeToken0Balance,
+                beforeToken1Balance,
+                token0Balance,
+                token1Balance,
+                block.timestamp
+            );
+        }
+
+        return (token0Balance, token1Balance);
     }
 }
