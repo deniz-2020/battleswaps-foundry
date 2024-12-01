@@ -45,7 +45,7 @@ contract BattleswapsHook is BaseHook {
     mapping(address => mapping(bytes32 => bool))
         public playersWithOpenBattleRequests; // requester address => pairKey => bool
     mapping(address => mapping(bytes32 => address))
-        public playersWithOpenBattles; // requester/accepter address => pairKey => requester address
+        public playersWithOpenBattles; // player address => pairKey => requester address
 
     event BattleRequestCreated(
         address indexed requester,
@@ -93,7 +93,7 @@ contract BattleswapsHook is BaseHook {
             "Player already has an open battle request for this token pair."
         );
         require(
-            isPlayerWithOpenBattleForPairKey(pairKey, msg.sender) != address(0),
+            isPlayerWithOpenBattleForPairKey(pairKey, msg.sender) == address(0),
             "Player already has an open battle for this token pair."
         );
         _;
@@ -165,18 +165,44 @@ contract BattleswapsHook is BaseHook {
         uint256 beforeToken0Balance = token0Balance;
         uint256 beforeToken1Balance = token1Balance;
 
-        if (swapParams.zeroForOne) {
-            // If player is giving Token 0, check its balance limit
-            if (token0Balance >= uint256(int256(-delta.amount0()))) {
-                token0Balance -= uint256(int256(-delta.amount0()));
-                token1Balance += uint256(int256(delta.amount1()));
-            }
-        } else {
-            // If player is giving Token 1, check its balance limit
-            if (token1Balance >= uint256(int256(-delta.amount1()))) {
-                token1Balance -= uint256(int256(-delta.amount1()));
-                token0Balance += uint256(int256(delta.amount0()));
-            }
+        if (
+            swapParams.zeroForOne &&
+            token0Balance >= uint256(int256(-delta.amount0()))
+        ) {
+            token0Balance -= uint256(int256(-delta.amount0()));
+            token1Balance += uint256(int256(delta.amount1()));
+
+            emit BattleBalancesUpdated(
+                msg.sender,
+                isPlayer0,
+                token0,
+                token1,
+                battle.player0,
+                beforeToken0Balance,
+                beforeToken1Balance,
+                token0Balance,
+                token1Balance,
+                block.timestamp
+            );
+        } else if (
+            !swapParams.zeroForOne &&
+            token1Balance >= uint256(int256(-delta.amount1()))
+        ) {
+            token1Balance -= uint256(int256(-delta.amount1()));
+            token0Balance += uint256(int256(delta.amount0()));
+
+            emit BattleBalancesUpdated(
+                msg.sender,
+                isPlayer0,
+                token0,
+                token1,
+                battle.player0,
+                beforeToken0Balance,
+                beforeToken1Balance,
+                token0Balance,
+                token1Balance,
+                block.timestamp
+            );
         }
 
         // Update Battle with newly calculated Token 0 and Token 1 balances
@@ -187,19 +213,6 @@ contract BattleswapsHook is BaseHook {
             battle.player1Token0Balance = token0Balance;
             battle.player1Token1Balance = token1Balance;
         }
-
-        emit BattleBalancesUpdated(
-            msg.sender,
-            isPlayer0,
-            token0,
-            token1,
-            battle.player0,
-            beforeToken0Balance,
-            beforeToken1Balance,
-            token0Balance,
-            token1Balance,
-            block.timestamp
-        );
 
         return (this.afterSwap.selector, 0);
     }
