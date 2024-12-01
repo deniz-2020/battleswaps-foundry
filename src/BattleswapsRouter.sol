@@ -6,6 +6,7 @@ import {Currency, CurrencyLibrary} from "v4-core/types/Currency.sol";
 import {CurrencySettler} from "@uniswap/v4-core/test/utils/CurrencySettler.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {PoolId} from "v4-core/types/PoolId.sol";
 import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
 import {IERC20Minimal} from "v4-core/interfaces/external/IERC20Minimal.sol";
 import {TransientStateLibrary} from "v4-core/libraries/TransientStateLibrary.sol";
@@ -25,22 +26,29 @@ contract BattleswapsRouter is Ownable {
     }
 
     IPoolManager public immutable manager;
+    mapping(PoolId => PoolKey) public registeredPoolKeys;
 
     constructor(IPoolManager _manager) Ownable(msg.sender) {
         manager = _manager;
     }
 
     function swap(
-        PoolKey memory key,
+        PoolId poolId,
         IPoolManager.SwapParams memory params
     ) external payable returns (BalanceDelta delta) {
+        PoolKey memory poolKey = registeredPoolKeys[poolId];
+        require(
+            Currency.unwrap(poolKey.currency0) != address(0),
+            "The specified Pool is not registered for swaps"
+        );
+
         return
             delta = abi.decode(
                 manager.unlock(
                     abi.encode(
                         CallbackData(
                             msg.sender,
-                            key,
+                            poolKey,
                             params,
                             abi.encode(msg.sender)
                         )
@@ -100,5 +108,12 @@ contract BattleswapsRouter is Ownable {
         }
 
         return abi.encode(delta);
+    }
+
+    // TODO: Limit this function so that not just anyone can call it! For now for testing, anyone can it...
+    function registerPool(PoolKey memory poolKey) external {
+        registeredPoolKeys[
+            PoolId.wrap(keccak256(abi.encode(poolKey)))
+        ] = poolKey;
     }
 }
