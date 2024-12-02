@@ -20,6 +20,7 @@ import "forge-std/console.sol";
 import "forge-std/Script.sol";
 import "../src/BattleswapsRouter.sol";
 import "../src/BattleswapsHook.sol";
+import {HookMiner} from "../src/utils/HookMiner.sol";
 
 contract Deploy is Script, Deployers {
     BattleswapsRouter battleswapsRouter;
@@ -32,6 +33,7 @@ contract Deploy is Script, Deployers {
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY"); // The private key of the EOA that will making the deployment i.e. paying the gas fees
+        address CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
         // Start broadcasting transactions (necessary for deployment)
         vm.startBroadcast(deployerPrivateKey);
@@ -54,16 +56,27 @@ contract Deploy is Script, Deployers {
         token0Currency = Currency.wrap(address(token0));
         token1Currency = Currency.wrap(address(token1));
 
-        // Deploy hook to an address that has the proper flags set
-        uint160 flags = uint160(Hooks.AFTER_SWAP_FLAG);
-        deployCodeTo(
-            "BattleswapsHook.sol",
-            abi.encode(manager, battleswapsRouter), // This is the encoded list of parameters that will be passed to the constructor of the hook
-            address(flags)
+        // Mine a salt that will produce a hook address with the correct permissions and deploy the hook to that address
+        uint160 permissions = uint160(Hooks.AFTER_SWAP_FLAG);
+        (address hookAddress, bytes32 salt) = HookMiner.find(
+            CREATE2_DEPLOYER,
+            permissions,
+            type(BattleswapsHook).creationCode,
+            abi.encode(address(manager), address(battleswapsRouter))
         );
 
+        console.log("mmmmmmm", hookAddress);
+        console.logBytes32(salt);
+
         // Set reference the hook contract
-        battleswapsHook = BattleswapsHook(address(flags));
+        battleswapsHook = new BattleswapsHook{salt: salt}(
+            manager,
+            address(battleswapsRouter)
+        );
+        require(
+            address(battleswapsHook) == hookAddress,
+            "Hook address mismatch :/"
+        );
 
         // Approve Token 0 and Token 1 for spending on the swap router and modify liquidity router
         token0.approve(address(swapRouter), type(uint256).max);
