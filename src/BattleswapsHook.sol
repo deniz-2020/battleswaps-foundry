@@ -14,6 +14,11 @@ contract BattleswapsHook is BaseHook {
     using CurrencyLibrary for Currency;
     using BalanceDeltaLibrary for BalanceDelta;
 
+    struct BattleRequestKey {
+        bytes32 pairKey;
+        address requester;
+    }
+
     struct BattleRequest {
         address requester; // Player who is requesting the battle
         address opponent; // Opponent address (optionally provided)
@@ -48,6 +53,7 @@ contract BattleswapsHook is BaseHook {
         public playersWithOpenBattleRequests; // requester address => pairKey => bool
     mapping(address => mapping(bytes32 => address))
         public playersWithOpenBattles; // player address => pairKey => requester address
+    BattleRequestKey[] public battleRequestKeys;
 
     event BattleRequestCreated(
         address indexed requester,
@@ -85,6 +91,17 @@ contract BattleswapsHook is BaseHook {
         uint256 beforeBalanceToken1,
         uint256 afterBalanceToken0,
         uint256 afterBalanceToken1,
+        uint256 timestamp
+    );
+
+    event BattleBalanceUpdatesSkipped(
+        bool zeroForOne,
+        address indexed player,
+        bool isPlayer0,
+        address token0,
+        address token1,
+        address requester,
+        uint256 deltaAmount,
         uint256 timestamp
     );
 
@@ -142,7 +159,7 @@ contract BattleswapsHook is BaseHook {
     ) external override onlyPoolManager returns (bytes4, int128) {
         require(
             swapCaller == battleSwapRouter,
-            "The swaps for this hook can only be called by the BattleswapsRouter contract"
+            "The swaps for this hook can only be called by the BattleswapsRouter contract."
         );
 
         // Check if trader has an open battle for pairKey
@@ -161,7 +178,7 @@ contract BattleswapsHook is BaseHook {
         }
 
         // If there is an open battle, load it
-        Battle memory battle = getBattle(pairKey, battleRequester);
+        Battle storage battle = battles[pairKey][battleRequester];
 
         // If battle has expired, short-circuit the afterSwap hook logic
         if (battle.endsAt <= block.timestamp) {
@@ -170,14 +187,15 @@ contract BattleswapsHook is BaseHook {
 
         // Calculate and then update the new balances for Token 0 and Token 1
         bool isPlayer0 = battle.player0 == trader;
+        CalculateNewBalancesParams
+            memory calcNewBalParams = CalculateNewBalancesParams({
+                swapParams: swapParams,
+                delta: delta,
+                battle: battle,
+                player: trader
+            });
         (uint256 token0Balance, uint256 token1Balance) = _calculateNewBalances(
-            swapParams,
-            delta,
-            battle,
-            trader,
-            isPlayer0,
-            token0,
-            token1
+            calcNewBalParams
         );
 
         if (isPlayer0) {
@@ -267,6 +285,8 @@ contract BattleswapsHook is BaseHook {
             token1: params.token1,
             timestamp: block.timestamp
         });
+
+        battleRequestKeys.push(BattleRequestKey(pairKey, msg.sender));
 
         emit BattleRequestCreated(
             msg.sender,
@@ -389,59 +409,110 @@ contract BattleswapsHook is BaseHook {
         return playersWithOpenBattles[player][pairKey];
     }
 
+    function getBattleRequestKeys()
+        public
+        view
+        returns (BattleRequestKey[] memory)
+    {
+        return battleRequestKeys;
+    }
+
+    struct CalculateNewBalancesParams {
+        IPoolManager.SwapParams swapParams;
+        BalanceDelta delta;
+        Battle battle;
+        address player;
+    }
+
     function _calculateNewBalances(
-        IPoolManager.SwapParams calldata swapParams,
-        BalanceDelta delta,
-        Battle memory battle,
-        address player,
-        bool isPlayer0,
-        address token0,
-        address token1
+        CalculateNewBalancesParams memory params
     ) private returns (uint256, uint256) {
         // Load initial Battle values
+        bool isPlayer0 = params.player == params.battle.player0;
         uint256 token0Balance = isPlayer0
-            ? battle.player0Token0Balance
-            : battle.player1Token0Balance;
+            ? params.battle.player0Token0Balance
+            : params.battle.player1Token0Balance;
         uint256 token1Balance = isPlayer0
-            ? battle.player0Token1Balance
-            : battle.player1Token1Balance;
+            ? params.battle.player0Token1Balance
+            : params.battle.player1Token1Balance;
         uint256 beforeToken0Balance = token0Balance;
         uint256 beforeToken1Balance = token1Balance;
 
         // Check current balances and calculate new values where necessary
         if (
-            swapParams.zeroForOne &&
-            token0Balance >= uint256(int256(-delta.amount0()))
+            params.swapParams.zeroForOne &&
+            token0Balance >= uint256(int256(-params.delta.amount0()))
         ) {
-            token0Balance -= uint256(int256(-delta.amount0()));
-            token1Balance += uint256(int256(delta.amount1()));
+            token0Balance -= uint256(int256(-params.delta.amount0()));
+            token1Balance += uint256(int256(params.delta.amount1()));
         } else if (
-            !swapParams.zeroForOne &&
-            token1Balance >= uint256(int256(-delta.amount1()))
+            !params.swapParams.zeroForOne &&
+            token1Balance >= uint256(int256(-params.delta.amount1()))
         ) {
-            token1Balance -= uint256(int256(-delta.amount1()));
-            token0Balance += uint256(int256(delta.amount0()));
+            token1Balance -= uint256(int256(-params.delta.amount1()));
+            token0Balance += uint256(int256(params.delta.amount0()));
         }
 
         // If there were changes to the balances, emit event to indicate this
+        EmitBattleBalancesEventParams
+            memory eventParams = EmitBattleBalancesEventParams({
+                zeroForOne: params.swapParams.zeroForOne,
+                battle: params.battle,
+                player: params.player,
+                beforeToken0Balance: beforeToken0Balance,
+                beforeToken1Balance: beforeToken1Balance,
+                token0Balance: token0Balance,
+                token1Balance: token1Balance,
+                deltaAmount: params.swapParams.zeroForOne
+                    ? uint256(int256(-params.delta.amount0()))
+                    : uint256(int256(-params.delta.amount1()))
+            });
+        _emitBattleBalancesEvent(eventParams);
+
+        return (token0Balance, token1Balance);
+    }
+
+    struct EmitBattleBalancesEventParams {
+        bool zeroForOne;
+        Battle battle;
+        address player;
+        uint256 beforeToken0Balance;
+        uint256 beforeToken1Balance;
+        uint256 token0Balance;
+        uint256 token1Balance;
+        uint256 deltaAmount;
+    }
+
+    function _emitBattleBalancesEvent(
+        EmitBattleBalancesEventParams memory params
+    ) private {
         if (
-            beforeToken0Balance != token0Balance ||
-            beforeToken1Balance != token1Balance
+            params.beforeToken0Balance != params.token0Balance ||
+            params.beforeToken1Balance != params.token1Balance
         ) {
             emit BattleBalancesUpdated(
-                player,
-                isPlayer0,
-                token0,
-                token1,
-                battle.player0,
-                beforeToken0Balance,
-                beforeToken1Balance,
-                token0Balance,
-                token1Balance,
+                params.player,
+                params.player == params.battle.player0,
+                params.battle.battleRequest.token0,
+                params.battle.battleRequest.token1,
+                params.battle.player0,
+                params.beforeToken0Balance,
+                params.beforeToken1Balance,
+                params.token0Balance,
+                params.token1Balance,
+                block.timestamp
+            );
+        } else {
+            emit BattleBalanceUpdatesSkipped(
+                params.zeroForOne,
+                params.player,
+                params.player == params.battle.player0,
+                params.battle.battleRequest.token0,
+                params.battle.battleRequest.token1,
+                params.battle.player0,
+                params.deltaAmount,
                 block.timestamp
             );
         }
-
-        return (token0Balance, token1Balance);
     }
 }
