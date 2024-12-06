@@ -8,9 +8,13 @@ import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {BalanceDeltaLibrary, BalanceDelta} from "v4-core/types/BalanceDelta.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {Hooks} from "v4-core/libraries/Hooks.sol";
+import {LPFeeLibrary} from "v4-periphery/lib/v4-core/src/libraries/LPFeeLibrary.sol";
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
 import "forge-std/console.sol"; // REMOVE THIS WHEN DONE DEBUGGING
 
 contract BattleswapsHook is BaseHook {
+    using StateLibrary for IPoolManager;
     using CurrencyLibrary for Currency;
     using BalanceDeltaLibrary for BalanceDelta;
 
@@ -33,8 +37,8 @@ contract BattleswapsHook is BaseHook {
     }
 
     struct Battle {
-        address player0; // Is the player that requested the battle
-        address player1; // Is the player that accepted the battle request
+        address player0; // Is (always) the player that requested the battle
+        address player1; // Is (always) the player that accepted the battle request
         uint256 startedAt; // The time the battle is accepted and hence started
         uint256 endsAt; // The specific time the battle is expected to end
         uint256 player0Token0Balance; // The current balance of Token 0 for player 0
@@ -43,17 +47,6 @@ contract BattleswapsHook is BaseHook {
         uint256 player1Token1Balance; // The current balance of Token 1 for player 1
         BattleRequest battleRequest; // A reference to the original battle request information
     }
-
-    address battleSwapRouter;
-
-    mapping(bytes32 => mapping(address => BattleRequest)) public battleRequests; // Mapping(pairKey => Mapping(requester address => BattleRequest))
-    mapping(bytes32 => mapping(address => Battle)) public battles; // Mapping(pairKey => Mapping(requester address => Battle))
-
-    mapping(address => mapping(bytes32 => bool))
-        public playersWithOpenBattleRequests; // requester address => pairKey => bool
-    mapping(address => mapping(bytes32 => address))
-        public playersWithOpenBattles; // player address => pairKey => requester address
-    BattleRequestKey[] public battleRequestKeys;
 
     event BattleRequestCreated(
         address indexed requester,
@@ -104,6 +97,24 @@ contract BattleswapsHook is BaseHook {
         uint256 deltaAmount,
         uint256 timestamp
     );
+
+    event PrizeRedeemed(
+        address indexed winner,
+        uint256 player0FinalBalance,
+        uint player1FinalBalance,
+        uint256 timestamp
+    );
+
+    address battleSwapRouter;
+
+    mapping(bytes32 => mapping(address => BattleRequest)) public battleRequests; // pairKey => requester address => BattleRequest
+    mapping(bytes32 => mapping(address => Battle)) public battles; // pairKey => requester address => Battle
+
+    mapping(address => mapping(bytes32 => bool))
+        public playersWithOpenBattleRequests; // requester address => pairKey => bool
+    mapping(address => mapping(bytes32 => address))
+        public playersWithOpenBattles; // player address => pairKey => requester address
+    BattleRequestKey[] public battleRequestKeys;
 
     modifier onlyPlayerAvailableForBattle(address _token0, address _token1) {
         bytes32 pairKey = keccak256(abi.encodePacked(_token0, _token1));
@@ -375,6 +386,104 @@ contract BattleswapsHook is BaseHook {
 
         // Remove the battle request from the battle requests mapping
         deleteBattleRequest(pairKey, br.requester);
+    }
+
+    function redeemPrize(bytes32 pairKey) external payable {
+        // Retrieve the battle for which the prize is being redeemed for
+        address requester = playersWithOpenBattles[msg.sender][pairKey];
+        require(
+            requester != address(0),
+            "Player has no current battle for given pairKey."
+        );
+
+        // Check that battle has ended i.e. expired
+        Battle memory battle = battles[pairKey][requester];
+        require(
+            battle.endsAt <= block.timestamp,
+            "Given battle has not ended yet."
+        );
+
+        /*
+        IMPORTANT NOTE: Currently, the hook ONLY supports pools 
+        with dynamic fees and a tick spacing of 60 as that is what is deployed to 
+        anvil node for local testing.
+
+        In a production version, we would take into account the remaining other 
+        factors such as static fees and varying tick spacings. This would of course mean
+        that those need to be supplied as well when calling the redeemPrize function.
+        */
+        PoolKey memory poolKey = PoolKey(
+            Currency.wrap(battle.battleRequest.token0),
+            Currency.wrap(battle.battleRequest.token1),
+            LPFeeLibrary.DYNAMIC_FEE_FLAG, // see note above
+            60, // see note above
+            this
+        );
+
+        // Load the final balance for each player
+        uint player0FinalBalance = calculatePlayerFinalBalance(
+            battle.player0Token0Balance,
+            battle.player0Token1Balance,
+            poolKey
+        );
+        uint player1FinalBalance = calculatePlayerFinalBalance(
+            battle.player1Token0Balance,
+            battle.player1Token1Balance,
+            poolKey
+        );
+
+        // Check if player won, if they did then transfer money to them
+        bool isPlayer0 = msg.sender == battle.player0;
+        if (
+            (isPlayer0 && player0FinalBalance > player1FinalBalance) ||
+            (!isPlayer0 && player1FinalBalance > player0FinalBalance)
+        ) {
+            ERC20(battle.battleRequest.token0).transferFrom(
+                address(this),
+                msg.sender,
+                battle.battleRequest.prizePotShareToken0
+            );
+            ERC20(battle.battleRequest.token1).transferFrom(
+                address(this),
+                msg.sender,
+                battle.battleRequest.prizePotShareToken1
+            );
+
+            // Update local storage and emit an event that the prize was redeemed
+            delete battles[pairKey][battle.battleRequest.requester];
+            delete playersWithOpenBattles[battle.player0][pairKey];
+            delete playersWithOpenBattles[battle.player1][pairKey];
+
+            emit PrizeRedeemed(
+                msg.sender,
+                player0FinalBalance,
+                player1FinalBalance,
+                block.timestamp
+            );
+        } else if (player0FinalBalance == player1FinalBalance) {
+            // TODO: Decide how to handle the case when there is a draw.
+            // Perhaps both players can be refunded their deposits back or
+            // the game can be expiry can be extended etc.
+        }
+
+        // If this point is reached then the caller is not actually the winner so revert the transaction
+        revert("Caller attempted to redeem prize but did not win this battle.");
+    }
+
+    function calculatePlayerFinalBalance(
+        uint256 amountToken0,
+        uint256 amountToken1,
+        PoolKey memory poolKey
+    ) internal view returns (uint256 valueInToken0) {
+        (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(poolKey.toId());
+
+        // Calculate price in terms of Token0
+        uint256 priceX96 = uint256(sqrtPriceX96) * uint256(sqrtPriceX96); // Square the sqrtPriceX96
+        uint256 price = priceX96 / (1 << 192); // Divide by 2^192 to get the actual price
+
+        // Convert amountToken1 to value in Token0
+        uint256 token1ValueInToken0 = (amountToken1 * price) / 1e18; // Note: Divide by 1e18 to keep for correct scale
+        return amountToken0 + token1ValueInToken0;
     }
 
     function getBattleRequest(
