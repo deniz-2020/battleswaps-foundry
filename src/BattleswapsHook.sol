@@ -36,6 +36,11 @@ contract BattleswapsHook is BaseHook {
         uint256 timestamp; // Timestamp of when the battle request was made
     }
 
+    struct BattleKey {
+        bytes32 pairKey;
+        address requester;
+    }
+
     struct Battle {
         address player0; // Is (always) the player that requested the battle
         address player1; // Is (always) the player that accepted the battle request
@@ -115,6 +120,7 @@ contract BattleswapsHook is BaseHook {
     mapping(address => mapping(bytes32 => address))
         public playersWithOpenBattles; // player address => pairKey => requester address
     BattleRequestKey[] public battleRequestKeys;
+    BattleKey[] public battleKeys;
 
     modifier onlyPlayerAvailableForBattle(address _token0, address _token1) {
         bytes32 pairKey = keccak256(abi.encodePacked(_token0, _token1));
@@ -349,6 +355,7 @@ contract BattleswapsHook is BaseHook {
             player1Token1Balance: br.startBalanceToken1,
             battleRequest: br
         });
+        battleKeys.push(BattleKey(pairKey, br.requester));
 
         emit BattleRequestAccepted(
             br.requester,
@@ -502,6 +509,32 @@ contract BattleswapsHook is BaseHook {
         address requester
     ) public view returns (Battle memory) {
         return battles[pairKey][requester];
+    }
+
+    function getAllBattleRequests()
+        public
+        view
+        returns (BattleRequest[] memory)
+    {
+        BattleRequest[] memory allRequests = new BattleRequest[](
+            battleRequestKeys.length
+        );
+        for (uint256 i = 0; i < battleRequestKeys.length; i++) {
+            BattleRequestKey memory key = battleRequestKeys[i];
+            allRequests[i] = battleRequests[key.pairKey][key.requester];
+        }
+
+        return allRequests;
+    }
+
+    function getBattles() public view returns (Battle[] memory) {
+        Battle[] memory allBattles = new Battle[](battleKeys.length);
+        for (uint256 i = 0; i < battleKeys.length; i++) {
+            BattleKey memory key = battleKeys[i];
+            allBattles[i] = battles[key.pairKey][key.requester];
+        }
+
+        return allBattles;
     }
 
     function isPlayerWithOpenBattleRequestForPairKey(

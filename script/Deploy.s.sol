@@ -5,6 +5,7 @@ import {Deployers} from "@uniswap/v4-core/test/utils/Deployers.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {SwapRouterNoChecks} from "@uniswap/v4-core/src/test/SwapRouterNoChecks.sol";
 import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
+import {LPFeeLibrary} from "v4-periphery/lib/v4-core/src/libraries/LPFeeLibrary.sol";
 import {PoolModifyLiquidityTestNoChecks} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTestNoChecks.sol";
 import {PoolDonateTest} from "@uniswap/v4-core/src/test/PoolDonateTest.sol";
 import {PoolTakeTest} from "@uniswap/v4-core/src/test/PoolTakeTest.sol";
@@ -99,7 +100,7 @@ contract Deploy is Script, Deployers {
             token0Currency, // Currency for token0
             token1Currency, // Currency for token1
             battleswapsHook, // Hook Contract
-            3000, // Swap Fees
+            LPFeeLibrary.DYNAMIC_FEE_FLAG, // Swap Fees
             SQRT_PRICE_1_1
         );
 
